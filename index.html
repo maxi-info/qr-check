@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Проверка фискального чека</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+            background: #f4f6f8;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+        }
+        .container {
+            max-width: 700px;
+            width: 100%;
+            background: #fff;
+            padding: 24px;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+        h1 {
+            font-size: 22px;
+            margin-top: 0;
+            color: #1a1a1a;
+        }
+        label {
+            display: block;
+            font-weight: 600;
+            margin-bottom: 6px;
+            color: #333;
+        }
+        textarea {
+            width: 100%;
+            padding: 12px;
+            font-family: monospace;
+            font-size: 14px;
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            box-sizing: border-box;
+            resize: vertical;
+            background: #fafafa;
+        }
+        textarea:focus {
+            outline: none;
+            border-color: #007bff;
+            background: #fff;
+        }
+        button {
+            margin-top: 12px;
+            padding: 12px 24px;
+            font-size: 16px;
+            font-weight: 600;
+            color: #fff;
+            background: #007bff;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        button:active {
+            transform: translateY(1px);
+        }
+        .result {
+            margin-top: 20px;
+            background: #f9f9f9;
+            border-radius: 8px;
+            padding: 16px;
+            border: 1px solid #e0e0e0;
+        }
+        .result h2 {
+            font-size: 18px;
+            margin-top: 0;
+            margin-bottom: 12px;
+            color: #222;
+        }
+        .row {
+            display: flex;
+            padding: 8px 0;
+            border-bottom: 1px solid #eaeaea;
+        }
+        .row:last-child {
+            border-bottom: none;
+        }
+        .label {
+            font-weight: 600;
+            width: 140px;
+            flex-shrink: 0;
+            color: #555;
+        }
+        .value {
+            font-family: monospace;
+            word-break: break-all;
+        }
+        .link-box {
+            margin-top: 16px;
+            padding: 12px;
+            background: #e7f3ff;
+            border-left: 4px solid #007bff;
+            border-radius: 6px;
+            word-break: break-all;
+        }
+        .link-box a {
+            color: #0056b3;
+            text-decoration: none;
+        }
+        .link-box a:hover {
+            text-decoration: underline;
+        }
+        .error {
+            color: #d32f2f;
+            background: #fdecea;
+            padding: 12px;
+            border-radius: 6px;
+            margin-top: 16px;
+            border-left: 4px solid #d32f2f;
+        }
+        .note {
+            font-size: 13px;
+            color: #666;
+            margin-top: 8px;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>🔍 Проверка фискального чека</h1>
+    <p style="color:#555; margin-top:0;">Вставьте строку из QR-кода чека и нажмите «Найти».</p>
+
+    <label for="qrInput">Данные QR-кода:</label>
+    <textarea id="qrInput" rows="3" placeholder="Вставьте сюда данные из QR-кода чека..."></textarea>
+
+    <button id="parseBtn">Найти</button>
+
+    <div id="output"></div>
+</div>
+
+<script>
+    (function() {
+        const input = document.getElementById('qrInput');
+        const output = document.getElementById('output');
+        const parseBtn = document.getElementById('parseBtn');
+
+        const typeMap = {
+            '1': 'Приход (продажа)',
+            '2': 'Возврат прихода',
+            '3': 'Расход',
+            '4': 'Возврат расхода',
+            '5': 'Приход (покупка)',
+            '6': 'Возврат прихода (покупка)',
+            '7': 'Чек коррекции (приход)',
+            '8': 'Чек коррекции (возврат прихода)',
+            '9': 'Чек коррекции (расход)',
+            '10': 'Чек коррекции (возврат расхода)'
+        };
+
+        function formatDateTime(t) {
+            if (!t || t.length < 13) return t || '—';
+            const year = t.substring(0, 4);
+            const month = t.substring(4, 6);
+            const day = t.substring(6, 8);
+            let hour, minute;
+            if (t[8] === 'T' || t[8] === 't') {
+                hour = t.substring(9, 11);
+                minute = t.substring(11, 13);
+            } else {
+                hour = t.substring(8, 10);
+                minute = t.substring(10, 12);
+            }
+            return `${day}.${month}.${year} ${hour}:${minute}`;
+        }
+
+        function parseQR(str) {
+            const params = {};
+            const parts = str.split('&');
+            for (let part of parts) {
+                part = part.trim();
+                if (!part) continue;
+                const eqIndex = part.indexOf('=');
+                if (eqIndex === -1) continue;
+                const key = part.substring(0, eqIndex).trim();
+                const value = part.substring(eqIndex + 1).trim();
+                if (key) params[key] = value;
+            }
+            return params;
+        }
+
+        function render() {
+            const raw = input.value.trim();
+
+            if (!raw) {
+                output.innerHTML = '<div class="error">Введите данные QR-кода.</div>';
+                return;
+            }
+
+            const params = parseQR(raw);
+
+            if (!params.fn && !params.i && !params.fp) {
+                output.innerHTML = '<div class="error">Не удалось распознать поля. Убедитесь, что строка содержит fn=, i=, fp= и разделители &amp;.</div>';
+                return;
+            }
+
+            const t = params.t || '';
+            const s = params.s || '';
+            const fn = params.fn || '';
+            const i = params.i || '';
+            const fp = params.fp || '';
+            const n = params.n || '';
+
+            const dateFormatted = formatDateTime(t);
+
+            let typeText = typeMap[n] || 'Неизвестный тип (' + n + ')';
+            if (!n) typeText = '—';
+
+            let linkUrl = '';
+            if (fn && i && fp) {
+                linkUrl = `https://check.ofd.ru/rec/${fn}/${i}/${fp}`;
+            }
+
+            let html = '<div class="result">';
+            html += '<h2>📋 Данные чека</h2>';
+            html += `<div class="row"><span class="label">Дата и время:</span><span class="value">${dateFormatted} <span style="color:#888;font-size:12px;">(оригинал: ${t})</span></span></div>`;
+            html += `<div class="row"><span class="label">Сумма чека:</span><span class="value">${s ? s + ' ₽' : '—'}</span></div>`;
+            html += `<div class="row"><span class="label">ФН (накопитель):</span><span class="value">${fn || '—'}</span></div>`;
+            html += `<div class="row"><span class="label">ФД (документ):</span><span class="value">${i || '—'}</span></div>`;
+            html += `<div class="row"><span class="label">ФП (признак):</span><span class="value">${fp || '—'}</span></div>`;
+            html += `<div class="row"><span class="label">Тип операции:</span><span class="value">${typeText}</span></div>`;
+            html += '</div>';
+
+            if (linkUrl) {
+                html += `<div class="link-box">
+                    <strong>🔗 Ссылка для сохранения чека:</strong><br>
+                    <a href="${linkUrl}" target="_blank" rel="noopener">${linkUrl}</a>
+                    <div class="note">Ссылка сформирована автоматически. Если сайт check.ofd.ru не открывает чек, скопируйте данные вручную.</div>
+                </div>`;
+            } else {
+                html += `<div class="error">Недостаточно данных для формирования ссылки (нужны fn, i, fp).</div>`;
+            }
+
+            output.innerHTML = html;
+        }
+
+        parseBtn.addEventListener('click', render);
+
+        input.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                render();
+            }
+        });
+    })();
+</script>
+</body>
+</html>
